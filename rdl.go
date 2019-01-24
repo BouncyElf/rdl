@@ -17,16 +17,20 @@ func init() {
 	mu = new(sync.Mutex)
 }
 
+// RedisClient is the interface of redis client
 type RedisClient interface {
 	// get k from redis, v is the value of k,
 	// ok specific whether the operation successed.
+	// WARNING: make sure this is atomic operation.
 	GetString(k string) (v string, ok bool)
 
 	// set k, v with expire time into redis,
 	// ok specific whether the operation successed.
+	// WARNING: make sure this is atomic operation.
 	SetString(k, v string, ex time.Duration) (ok bool)
 }
 
+// Rdl is a locker
 type Rdl struct {
 	mu  *sync.Mutex
 	c   *Conf
@@ -40,6 +44,7 @@ type Rdl struct {
 	val  string
 }
 
+// New returns a new lock with redisclient and key name
 func New(cli RedisClient, name string, confs ...*Conf) *Rdl {
 	mu.Lock()
 	defer mu.Unlock()
@@ -56,6 +61,7 @@ func New(cli RedisClient, name string, confs ...*Conf) *Rdl {
 	}
 }
 
+// Lock returns whether get lock
 func (r *Rdl) Lock() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -91,6 +97,8 @@ func (r *Rdl) Lock() bool {
 	return false
 }
 
+// Unlock release the lock. If can not put lock back, Unlock wait until the
+// lock expired.
 func (r *Rdl) Unlock() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -110,6 +118,9 @@ func (r *Rdl) Unlock() {
 	}
 }
 
+// Ensure make sure the func f executed, it returns only two error:
+// 1.ErrNotGetLock. In this case, you can retry or whatever.
+// 2.ErrTimeout. In this case, you may need to RollBack or whatever.
 func (r *Rdl) Ensure(f func()) error {
 	if !r.Lock() {
 		return ErrNotGetLock
@@ -132,6 +143,7 @@ func (r *Rdl) Ensure(f func()) error {
 	return e("u can not get me")
 }
 
+// Remain returns the rest time of holding lock
 func (r *Rdl) Remain() time.Duration {
 	if !r.hasLock {
 		return 0
@@ -139,6 +151,7 @@ func (r *Rdl) Remain() time.Duration {
 	return r.c.timeout - time.Now().Sub(r.set)
 }
 
+// C returns a stop chan, you can use this in select statement
 func (r *Rdl) C() <-chan time.Time {
 	c, remain := make(chan time.Time, 1), r.Remain()
 	if int64(remain) <= 0 {
@@ -149,6 +162,7 @@ func (r *Rdl) C() <-chan time.Time {
 	return time.NewTicker(remain).C
 }
 
+// getLock get the lock
 func (r *Rdl) getLock() bool {
 	val, ok := r.cli.GetString(r.name)
 	if !ok || val != "" {
@@ -158,6 +172,7 @@ func (r *Rdl) getLock() bool {
 	return r.cli.SetString(r.name, val, r.c.timeout)
 }
 
+// put lock put the lock back
 func (r *Rdl) putLock() bool {
 	val, ok := r.cli.GetString(r.name)
 	if ok && val == r.val {
@@ -166,6 +181,7 @@ func (r *Rdl) putLock() bool {
 	return false
 }
 
+// randome returns a random string value based on time.Now().UnixNano()
 func random() string {
 	return strconv.Itoa(
 		rand.New(
@@ -176,6 +192,7 @@ func random() string {
 	)
 }
 
+// e wrap the msg into an error
 func e(msg string) error {
 	return fmt.Errorf("[%s] %s.", "RDL", msg)
 }
