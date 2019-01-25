@@ -19,15 +19,12 @@ func init() {
 
 // RedisClient is the interface of redis client
 type RedisClient interface {
-	// get k from redis, v is the value of k,
-	// ok specific whether the operation successed.
-	// WARNING: make sure this is atomic operation.
-	GetString(k string) (v string, ok bool)
-
-	// set k, v with expire time into redis,
-	// ok specific whether the operation successed.
-	// WARNING: make sure this is atomic operation.
-	SetString(k, v string, ex time.Duration) (ok bool)
+	// set k, v with expire time if origin value is originVal,
+	// if originVal is "", this means key not exists or origin is "".
+	// NOTE:
+	// use (redis offical reference's script)[https://redis.io/topics/distlock]
+	// to make sure this is an atomic operation.
+	SetIfValIs(k, newVal string, ex time.Duration, originVal string) (ok bool)
 }
 
 // Rdl is a locker
@@ -164,21 +161,17 @@ func (r *Rdl) C() <-chan time.Time {
 
 // getLock get the lock
 func (r *Rdl) getLock() bool {
-	val, ok := r.cli.GetString(r.name)
-	if !ok || val != "" {
-		return false
+	v := random()
+	ok := r.cli.SetIfValIs(r.name, v, r.c.timeout, "")
+	if ok {
+		r.val = v
 	}
-	r.val = random()
-	return r.cli.SetString(r.name, val, r.c.timeout)
+	return ok
 }
 
 // put lock put the lock back
 func (r *Rdl) putLock() bool {
-	val, ok := r.cli.GetString(r.name)
-	if ok && val == r.val {
-		return r.cli.SetString(r.name, "", 1*time.Second)
-	}
-	return false
+	return r.cli.SetIfValIs(r.name, "", 1*time.Second, r.val)
 }
 
 // randome returns a random string value based on time.Now().UnixNano()
