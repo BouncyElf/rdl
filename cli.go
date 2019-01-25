@@ -9,10 +9,9 @@ import (
 
 var cmdScript string = `
 local v=redis.call("get", KEYS[1]);
-if (v == nil) or (v ~= nil and v == ARGV[3]) then
+if (not v) or (v == ARGV[3]) then
     return redis.call("setex", KEYS[1], ARGV[1], ARGV[2])
 end
-return false
 `
 
 type RedigoClient struct {
@@ -35,8 +34,8 @@ func (cli *RedigoClient) SetIfValIs(
 	defer c.Close()
 
 	s := redis.NewScript(1, cmdScript)
-	_, err := s.Do(c, k, newVal, ex.Seconds(), origin)
-	return err == nil
+	reply, err := s.Do(c, k, int64(ex.Seconds()), newVal, origin)
+	return err == nil && reply == "OK"
 }
 
 type GoRedisClient struct {
@@ -56,6 +55,6 @@ func (cli *GoRedisClient) SetIfValIs(
 	origin string,
 ) (ok bool) {
 	s := goredis.NewScript(cmdScript)
-	_, err := s.Run(cli.conn, []string{k}, newVal, ex.Seconds(), origin).Result()
-	return err == nil
+	reply, err := s.Run(cli.conn, []string{k}, int64(ex.Seconds()), newVal, origin).Result()
+	return err == nil && reply == "OK"
 }
