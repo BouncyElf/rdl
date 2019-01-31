@@ -55,6 +55,12 @@ func (cli *GoRedisClient) SetIfValIs(
 	origin string,
 ) (ok bool) {
 	s := goredis.NewScript(cmdScript)
-	reply, err := s.Run(cli.conn, []string{k}, int64(ex.Seconds()), newVal, origin).Result()
+	reply, err := s.Run(
+		cli.conn,
+		[]string{k},
+		int64(ex.Seconds()),
+		newVal,
+		origin,
+	).Result()
 	return err == nil && reply == "OK"
 }

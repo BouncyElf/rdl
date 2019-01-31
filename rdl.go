@@ -96,6 +96,8 @@ func (r *Rdl) Lock() bool {
 	return false
 }
 
+// TODO: lock with cancel context
+
 // Unlock release the lock. If can not put lock back, Unlock wait until the
 // lock expired.
 func (r *Rdl) Unlock() {
