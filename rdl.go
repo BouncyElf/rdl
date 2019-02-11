@@ -1,6 +1,7 @@
 package rdl
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -96,7 +97,45 @@ func (r *Rdl) Lock() bool {
 	return false
 }
 
-// TODO: lock with cancel context
+// LockWithCancel likes `Lock` but with a context.
+func (r *Rdl) LockWithContext(ctx context.Context) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for i := 0; i <= r.c.retry; i++ {
+		var (
+			start  = time.Now()
+			ticker = time.NewTicker(r.c.timeout)
+			loop   = true
+		)
+		for loop {
+			select {
+			case <-ticker.C:
+				loop = false
+				break
+			case <-ctx.Done():
+				return false
+			default:
+				if r.getLock() {
+					r.set = time.Now()
+					r.hasLock = true
+					time.AfterFunc(r.Remain(), func() {
+						r.hasLock = false
+					})
+					return true
+				}
+				d := r.c.wait
+				remain := r.c.timeout -
+					time.Now().Sub(start)
+				if d > remain {
+					d = remain
+				}
+				time.Sleep(d)
+			}
+		}
+	}
+	return false
+}
 
 // Unlock release the lock. If can not put lock back, Unlock wait until the
 // lock expired.
