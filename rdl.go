@@ -69,13 +69,14 @@ func (r *Rdl) Lock() bool {
 			start  = time.Now()
 			ticker = time.NewTicker(r.c.timeout)
 			loop   = true
+			d      = time.Duration(0)
 		)
 		for loop {
 			select {
 			case <-ticker.C:
 				loop = false
 				break
-			default:
+			case <-time.After(d):
 				if r.getLock() {
 					r.set = time.Now()
 					r.hasLock = true
@@ -84,13 +85,12 @@ func (r *Rdl) Lock() bool {
 					})
 					return true
 				}
-				d := r.c.wait
+				d = r.c.wait
 				remain := r.c.timeout -
 					time.Now().Sub(start)
 				if d > remain {
 					d = remain
 				}
-				time.Sleep(d)
 			}
 		}
 	}
@@ -107,6 +107,7 @@ func (r *Rdl) LockWithContext(ctx context.Context) bool {
 			start  = time.Now()
 			ticker = time.NewTicker(r.c.timeout)
 			loop   = true
+			d      = time.Duration(0)
 		)
 		for loop {
 			select {
@@ -115,7 +116,7 @@ func (r *Rdl) LockWithContext(ctx context.Context) bool {
 				break
 			case <-ctx.Done():
 				return false
-			default:
+			case <-time.After(d):
 				if r.getLock() {
 					r.set = time.Now()
 					r.hasLock = true
@@ -124,13 +125,12 @@ func (r *Rdl) LockWithContext(ctx context.Context) bool {
 					})
 					return true
 				}
-				d := r.c.wait
+				d = r.c.wait
 				remain := r.c.timeout -
 					time.Now().Sub(start)
 				if d > remain {
 					d = remain
 				}
-				time.Sleep(d)
 			}
 		}
 	}
