@@ -20,12 +20,11 @@ func init() {
 
 // RedisClient is the interface of redis client
 type RedisClient interface {
-	// set k, v with expire time if origin value is origin,
-	// if origin is "", this means key not exists or origin is "".
+	// set k, v with expire time if origin value is old or not exists(nil).
 	// NOTE:
 	// use (redis offical reference's script)[https://redis.io/topics/distlock]
 	// to make sure this is an atomic operation.
-	SetIfValIs(k, newVal string, ex time.Duration, origin string) (ok bool)
+	SetIfValIs(key, new string, ex time.Duration, old string) (ok bool)
 }
 
 // Rdl is a locker
