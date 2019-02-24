@@ -148,12 +148,20 @@ func (r *Rdl) Unlock() {
 	}
 
 	r.hasLock = false
+	done := make(chan struct{})
 
-	for !r.putLock() {
+	for {
 		select {
 		case <-r.C():
 			return
-		default:
+		case <-time.After(10 * time.Nanosecond):
+			go func() {
+				if r.putLock() {
+					done <- struct{}{}
+				}
+			}()
+		case <-done:
+			return
 		}
 	}
 }
