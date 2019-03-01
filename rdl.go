@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -226,13 +227,40 @@ func (r *Rdl) putLock() bool {
 
 // randome returns a random string value based on time.Now().UnixNano()
 func random() string {
-	return strconv.Itoa(
+	return getLocalIp() + strconv.Itoa(
 		rand.New(
 			rand.NewSource(
 				time.Now().UnixNano(),
 			),
 		).Int(),
 	)
+}
+
+// getLocalIp returns local ip
+func getLocalIp() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip.To4() != nil && !ip.IsLoopback() {
+				return ip.To4().String()
+			}
+		}
+	}
+	return ""
 }
 
 // e wrap the msg into an error
