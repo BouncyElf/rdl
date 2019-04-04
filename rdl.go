@@ -10,14 +10,9 @@ import (
 	"time"
 )
 
-var mu *sync.Mutex
-
 var ErrNotGetLock = e("failed to get lock")
 var ErrTimeout = e("timeout")
-
-func init() {
-	mu = new(sync.Mutex)
-}
+var ErrConfNotValid = e("conf is not valid")
 
 // RedisClient is the interface of redis client
 type RedisClient interface {
@@ -44,12 +39,12 @@ type Rdl struct {
 
 // New returns a new lock with redisclient and key name
 func New(cli RedisClient, name string, confs ...*Conf) *Rdl {
-	mu.Lock()
-	defer mu.Unlock()
-
 	conf := DefaultConf()
 	if len(confs) != 0 {
 		conf = confs[0]
+	}
+	if !conf.isValid() {
+		panic(ErrConfNotValid)
 	}
 	return &Rdl{
 		mu:   new(sync.Mutex),
@@ -80,7 +75,7 @@ func (r *Rdl) Lock() bool {
 				if r.getLock() {
 					r.set = time.Now()
 					r.hasLock = true
-					time.AfterFunc(r.Remain(), func() {
+					time.AfterFunc(r.remain(), func() {
 						r.hasLock = false
 					})
 					return true
@@ -120,7 +115,7 @@ func (r *Rdl) LockWithContext(ctx context.Context) bool {
 				if r.getLock() {
 					r.set = time.Now()
 					r.hasLock = true
-					time.AfterFunc(r.Remain(), func() {
+					time.AfterFunc(r.remain(), func() {
 						r.hasLock = false
 					})
 					return true
@@ -141,20 +136,25 @@ func (r *Rdl) LockWithContext(ctx context.Context) bool {
 // lock expired.
 func (r *Rdl) Unlock() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	defer func() {
+		r.mu.Unlock()
+		r.hasLock = false
+	}()
 
 	if !r.hasLock {
 		return
 	}
 
-	r.hasLock = false
-	done := make(chan struct{})
+	if r.putLock() {
+		return
+	}
 
+	done := make(chan struct{})
 	for {
 		select {
-		case <-r.C():
+		case <-time.After(r.remain()):
 			return
-		case <-time.After(10 * time.Nanosecond):
+		case <-time.After(1 * time.Nanosecond):
 			go func() {
 				if r.putLock() {
 					done <- struct{}{}
@@ -166,48 +166,24 @@ func (r *Rdl) Unlock() {
 	}
 }
 
-// Ensure make sure the func f executed, it returns only two error:
-// 1.ErrNotGetLock. In this case, you can retry or whatever.
-// 2.ErrTimeout. In this case, you may need to RollBack or whatever.
-func (r *Rdl) Ensure(f func()) error {
-	if !r.Lock() {
-		return ErrNotGetLock
-	}
-	defer r.Unlock()
-
-	done := make(chan struct{}, 1)
-	go func() {
-		f()
-		done <- struct{}{}
-		close(done)
-	}()
-
-	select {
-	case <-time.After(r.Remain()):
-		return ErrTimeout
-	case <-done:
-		return nil
-	}
-	return e("u can not get me")
-}
-
 // Remain returns the rest time of holding lock
-func (r *Rdl) Remain() time.Duration {
+func (r *Rdl) remain() time.Duration {
 	if !r.hasLock {
 		return 0
 	}
 	return r.c.timeout - time.Now().Sub(r.set)
 }
 
-// C returns a stop chan, you can use this in select statement
-func (r *Rdl) C() <-chan time.Time {
-	c, remain := make(chan time.Time, 1), r.Remain()
-	if int64(remain) <= 0 {
-		c <- time.Now()
-		return c
+func (r *Rdl) renewal() {
+	// TODO: if the lock can not get, it means something wrong with redis or
+	// the network or the method SetIfValIs. How to fix?
+	r.cli.SetIfValIs(r.name, r.val, r.c.timeout, r.val)
+}
+
+func (r *Rdl) autoRenewal() {
+	for r.hasLock {
+		time.AfterFunc(r.c.renewalTime, func() { r.renewal() })
 	}
-	close(c)
-	return time.NewTicker(remain).C
 }
 
 // getLock get the lock
