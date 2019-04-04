@@ -1,3 +1,6 @@
+# NOTE
+No unit test, DO NOT USE THIS.
+
 # RDL (a Redis-based Distributed Lock)
 🔒 RDL is a Redis-based Distributed Lock
 
