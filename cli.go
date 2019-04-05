@@ -7,6 +7,7 @@ import (
 	goredis "github.com/go-redis/redis"
 )
 
+// cmdScript is the script to implement the `SetIfValIs` interface
 var cmdScript string = `
 local v=redis.call("get", KEYS[1]);
 if (not v) or (v == ARGV[3]) then
@@ -14,6 +15,7 @@ if (not v) or (v == ARGV[3]) then
 end
 `
 
+// RedigoClient implemented `SetIfValIs` interface
 type RedigoClient struct {
 	pool *redis.Pool
 }
@@ -38,6 +40,7 @@ func (cli *RedigoClient) SetIfValIs(
 	return err == nil && reply == "OK"
 }
 
+// GoRedisClient implemented `SetIfValIs` interface
 type GoRedisClient struct {
 	conn *goredis.Client
 }

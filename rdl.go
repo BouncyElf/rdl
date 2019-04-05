@@ -17,9 +17,7 @@ var ErrConfNotValid = e("conf is not valid")
 // RedisClient is the interface of redis client
 type RedisClient interface {
 	// set k, v with expire time if origin value is old or not exists(nil).
-	// NOTE:
-	// use (redis offical reference's script)[https://redis.io/topics/distlock]
-	// to make sure this is an atomic operation.
+	// NOTE: make sure this is an atomic operation.
 	SetIfValIs(key, new string, ex time.Duration, old string) (ok bool)
 }
 
@@ -78,6 +76,9 @@ func (r *Rdl) Lock() bool {
 					time.AfterFunc(r.remain(), func() {
 						r.hasLock = false
 					})
+					if r.c.autoRenewal {
+						go r.autoRenewal()
+					}
 					return true
 				}
 				d = r.c.wait
@@ -118,6 +119,9 @@ func (r *Rdl) LockWithContext(ctx context.Context) bool {
 					time.AfterFunc(r.remain(), func() {
 						r.hasLock = false
 					})
+					if r.c.autoRenewal {
+						go r.autoRenewal()
+					}
 					return true
 				}
 				d = r.c.wait
@@ -132,7 +136,7 @@ func (r *Rdl) LockWithContext(ctx context.Context) bool {
 	return false
 }
 
-// Unlock release the lock. If can not put lock back, Unlock wait until the
+// Unlock release the lock. If can not put lock back, Unlock retry until the
 // lock expired.
 func (r *Rdl) Unlock() {
 	r.mu.Lock()
@@ -166,7 +170,7 @@ func (r *Rdl) Unlock() {
 	}
 }
 
-// Remain returns the rest time of holding lock
+// remain returns the rest time of holding lock
 func (r *Rdl) remain() time.Duration {
 	if !r.hasLock {
 		return 0
@@ -174,12 +178,14 @@ func (r *Rdl) remain() time.Duration {
 	return r.c.timeout - time.Now().Sub(r.set)
 }
 
+// renewal renewal the time of holding lock
 func (r *Rdl) renewal() {
 	// TODO: if the lock can not get, it means something wrong with redis or
 	// the network or the method SetIfValIs. How to fix?
 	r.cli.SetIfValIs(r.name, r.val, r.c.timeout, r.val)
 }
 
+// autoRenewal execute r.renewal() every renewalTime
 func (r *Rdl) autoRenewal() {
 	for r.hasLock {
 		time.AfterFunc(r.c.renewalTime, func() { r.renewal() })
